@@ -1,0 +1,43 @@
+---
+########
+# Main #
+########
+
+###############################
+# Set ansible_processor_vcpus #
+###############################
+- name: If ansible_processor_cpus is not defined, set to ansible_processor_cores or 1
+  set_fact:
+    ansible_processor_vcpus: "{{ ansible_processor_cores | default(1) }}"
+  when:
+    - ansible_processor_vcpus is not defined
+  tags:
+    - cmake
+    - git_source
+
+########################
+# Include OS variables #
+########################
+- name: Include OS variables
+  include_vars: "../vars/{{ ansible_distribution }}.yml"
+  tags: main
+
+##############################
+# OS setup and configuration #
+##############################
+# If this errors, upgrade ansible to >=2.4
+- name: Perform OS setup and configuration
+  include_tasks: "{{ ansible_distribution }}.yml"
+  tags: main
+
+###################
+# cmake on armv7l #
+###################
+- name: Install cmake on armv7l
+  apt: pkg=cmake state=latest update_cache=yes
+  when:
+    - ansible_architecture == "armv7l"
+  tags:
+    - cmake
+    # TODO: Package installs should not use latest
+    - skip_ansible_lint

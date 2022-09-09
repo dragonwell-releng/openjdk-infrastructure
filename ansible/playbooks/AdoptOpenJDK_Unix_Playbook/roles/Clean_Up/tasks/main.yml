@@ -1,0 +1,55 @@
+---
+############
+# Clean_Up #
+############
+
+# Package manager clean up
+- name: Remove unneeded packages from the cache - Ubuntu
+  apt:
+    autoclean: yes
+  when:
+    - ansible_distribution == "Ubuntu"
+  tags: clean_up
+
+- name: Remove apt dependencies that are no longer required - Ubuntu
+  apt:
+    autoremove: yes
+  when:
+    - ansible_distribution == "Ubuntu"
+  tags: clean_up
+
+- name: Remove yum dependencies that are no longer required - RedHat and CentOS
+  command: yum -y autoremove
+  args:
+    warn: no
+  when:
+    - (ansible_distribution == "RedHat" and ansible_distribution_major_version != "6") or (ansible_distribution == "CentOS" and ansible_distribution_major_version != "6")
+    - ansible_architecture != "aarch64"
+  tags: clean_up
+
+- name: Remove pkg dependencies that are no longer required - FreeBSD
+  command: pkg autoremove -y
+  when:
+    - ansible_distribution == "FreeBSD"
+  tags: clean_up
+
+#################################
+# Remove unneeded files/folders #
+#################################
+- name: Remove unneeded downloaded packages
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /tmp/expat-2.2.5 # expat
+    - /tmp/expat-2.2.5.tar.bz2 # expat
+    - /tmp/junit-3.8.2-8.1.noarch.rpm # junit
+    - /tmp/mpc-0.8.1 # gcc-4.8
+    - /tmp/mpc-0.8.1.tar.gz # gcc-4.8
+    - /tmp/nagios-plugins-2.2.1/ # nagios_plugins
+    - /tmp/nagios-plugins-2.2.1.tar.gz #nagios_plugins
+    - /tmp/sles12_cuda9_repo.rpm # NVidia_Cuda_Toolkit
+    - /tmp/zlib-1.2.11 # zlib_sles11_ppc64
+    - /tmp/zlib-1.2.11.tar.gz # zlib_sles11_ppc64
+  failed_when: false
+  tags: clean_up

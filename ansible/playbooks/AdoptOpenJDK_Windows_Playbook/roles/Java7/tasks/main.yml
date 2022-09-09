@@ -1,0 +1,46 @@
+---
+##########
+# Java 7 #
+##########
+
+- name: Test if Java 7 is already installed
+  win_stat:
+    path: 'C:\Program Files\Java\java-se-7u75-ri'
+  register: java7_installed
+  tags: Java7
+
+- name: Check if Java 7 is already downloaded
+  win_stat:
+    path: 'C:\temp\jdk7u75-b13.zip'
+  register: java7_download
+  tags: Java7
+
+- name: Download Java 7
+  win_get_url:
+    url: https://download.java.net/openjdk/jdk7u75/ri/jdk_ri-7u75-b13-windows-i586-18_dec_2014.zip
+    dest: 'C:\temp\jdk7u75-b13.zip'
+    checksum: 505a6a2440ae2d48e61a50049f0bb9fce789ab4618953e0c72e07c5987b725ab
+    checksum_algorithm: sha256
+  when: (not java7_download.stat.exists) and (not java7_installed.stat.exists)
+  tags: Java7
+
+- name: Install Java 7
+  win_unzip:
+    src: C:\temp\jdk7u75-b13.zip
+    dest: C:\Program Files\Java
+    delete_archive: yes
+  when: (not java7_installed.stat.exists)
+  tags: Java7
+
+- name: Test if Java 7 symlink is already created
+  win_stat:
+    path: 'C:\openjdk\jdk-7'
+  register: java7_symlink
+  tags: Java7
+
+- name: Create symlink to Java 7
+  win_shell: mklink /D "C:\openjdk\jdk-7" "C:\Program Files\Java\java-se-7u75-ri"
+  args:
+    executable: cmd
+  when: (not java7_symlink.stat.exists)
+  tags: Java7

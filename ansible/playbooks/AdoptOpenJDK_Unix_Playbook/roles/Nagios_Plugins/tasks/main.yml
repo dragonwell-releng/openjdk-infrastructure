@@ -1,0 +1,103 @@
+---
+##################
+# Nagios_Plugins #
+##################
+
+- name: If Raspbian on armv7l override ansible_distribution
+  set_fact:
+    ansible_distribution: "Ubuntu"
+  when:
+    - ansible_distribution == "Debian"
+    - ansible_architecture == "armv7l"
+
+  ###############
+  # Nagios user #
+  ###############
+
+- name: Set Home Folder for Nagios user
+  set_fact:
+    home_folder: /home/nagios
+
+- name: Set Home Folder for Nagios user (macos)
+  set_fact:
+    home_folder: /Users/nagios
+  when:
+    - ansible_distribution == "MacOSX"
+
+- name: Set Home Folder for Nagios user (Solaris)
+  set_fact:
+    home_folder: /export/home/nagios
+  when:
+    - ansible_distribution == "Solaris"
+
+- name: Create Nagios user
+  action: user name=nagios state=present home={{ home_folder }} shell=/bin/bash
+  failed_when: false
+  when:
+    - Nagios_Plugins == "Enabled"
+    - ansible_distribution != "MacOSX"
+
+- name: Create Nagios user (macOS)
+  action: user name=nagios group=staff state=present home={{ home_folder }} shell=/bin/bash
+  when:
+    - Nagios_Plugins == "Enabled"
+    - ansible_distribution == "MacOSX"
+
+- name: Enable SSH login for Nagios user (macOS)
+  command: dseditgroup -o edit -a nagios -t staff com.apple.access_ssh
+  failed_when: false
+  when:
+    - Nagios_Plugins == "Enabled"
+    - ansible_distribution == "MacOSX"
+
+- name: Create Nagios user's home folder (Solaris)
+  file:
+    path: /export/home/nagios
+    state: directory
+    owner: nagios
+    group: staff
+    mode: 0700
+  when:
+    - Nagios_Plugins == "Enabled"
+    - ansible_distribution == "Solaris"
+
+- name: Set Nagios user's home folder (Solaris)
+  command: usermod -d /export/home/nagios/ nagios
+  when:
+    - Nagios_Plugins == "Enabled"
+    - ansible_distribution == "Solaris"
+
+- name: Set authorized key for Nagios user
+  authorized_key:
+    user: nagios
+    state: present
+    key: "{{ Nagios_User_SSHKey }}"
+  when:
+    - Nagios_Plugins == "Enabled"
+
+  ################################
+  # Require OS specific playbook #
+  ################################
+- name: Include Nagios Playbook
+  include_tasks: nagios_{{ ansible_distribution }}.yml
+  when:
+    - Nagios_Plugins == "Enabled"
+
+  ##############################
+  # Install additional plugins #
+  ##############################
+- name: Download add-on check_mem plugin
+  get_url:
+    url: https://raw.githubusercontent.com/justintime/nagios-plugins/master/check_mem/check_mem.pl
+    dest: /usr/local/nagios/libexec/check_mem
+    mode: 0755
+    checksum: sha256:0b72dbc68d67292a3eb164679af5bac03d97f95b49dc68cf337fdc46f8f58a0c
+  when:
+    - Nagios_Plugins == "Enabled"
+    - ansible_distribution != "Solaris"
+
+- name: Download add-on check_mem plugin (Solaris)
+  command: wget https://raw.githubusercontent.com/justintime/nagios-plugins/master/check_mem/check_mem.pl -O /usr/local/nagios/libexec/check_mem
+  when:
+    - Nagios_Plugins == "Enabled"
+    - ansible_distribution == "Solaris"

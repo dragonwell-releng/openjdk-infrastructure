@@ -1,0 +1,125 @@
+---
+#####################
+# gmake from source #
+#####################
+
+# Conditions:
+# Check if make is installed in /usr/local/bin/make on CentOS/RHEL on ppc64le,
+# s390x, x86_64, on SLES12 on x86_64 and on Ubuntu14 on x86_64
+# Proceed with downloading and installing make
+# Addresses https://github.com/adoptium/infrastructure/issues/499
+# For RHEL 8, use gmake 4.2.1 already installed.
+
+- name: Set make version
+  set_fact: makeVersion=4.1
+  tags: goodmake_source
+
+- name: Test if self-built make {{ makeVersion }} is available
+  shell: /usr/local/bin/make --version >/dev/null
+  failed_when: false
+  register: goodmake_installed
+  changed_when: false
+  when:
+    - ((((ansible_distribution == "SLES" or ansible_distribution == "openSUSE") and ansible_distribution_major_version == "12") or
+      (ansible_distribution == "Ubuntu" and ansible_distribution_major_version == "14")) and
+      ansible_architecture == "x86_64") or
+      ((ansible_distribution == "RedHat" or ansible_distribution == "CentOS") and ansible_distribution_major_version|int < 8)
+  tags: goodmake_source
+
+- name: Download make {{ makeVersion }} source
+  get_url:
+    url: https://ftp.gnu.org/gnu/make/make-{{ makeVersion }}.tar.gz
+    dest: /tmp/make-{{ makeVersion }}.tar.gz
+    mode: 0440
+  when:
+    - ((((ansible_distribution == "SLES" or ansible_distribution == "openSUSE") and ansible_distribution_major_version == "12") or
+      (ansible_distribution == "Ubuntu" and ansible_distribution_major_version == "14")) and
+      ansible_architecture == "x86_64") or
+      ((ansible_distribution == "RedHat" or ansible_distribution == "CentOS") and ansible_distribution_major_version|int < 8)
+    - goodmake_installed.rc != 0
+  tags: goodmake_source
+
+- name: Extract make {{ makeVersion }} source
+  unarchive:
+    src: /tmp/make-{{ makeVersion }}.tar.gz
+    dest: /tmp
+    copy: False
+  when:
+    - ((((ansible_distribution == "SLES" or ansible_distribution == "openSUSE") and ansible_distribution_major_version == "12") or
+      (ansible_distribution == "Ubuntu" and ansible_distribution_major_version == "14")) and
+      ansible_architecture == "x86_64") or
+      ((ansible_distribution == "RedHat" or ansible_distribution == "CentOS") and ansible_distribution_major_version|int < 8)
+    - goodmake_installed.rc != 0
+  tags: goodmake_source
+
+- name: Compile and install make {{ makeVersion }} from source
+  shell: cd /tmp/make-{{ makeVersion }} && ./configure --prefix=/usr/local && make clean && make -j {{ ansible_processor_vcpus }} && make install
+  when:
+    - ((((ansible_distribution == "SLES" or ansible_distribution == "openSUSE") and ansible_distribution_major_version == "12") or
+      (ansible_distribution == "Ubuntu" and ansible_distribution_major_version == "14")) and
+      ansible_architecture == "x86_64") or
+      ((ansible_distribution == "RedHat" or ansible_distribution == "CentOS") and ansible_distribution_major_version|int < 8)
+    - goodmake_installed.rc != 0
+  tags: goodmake_source
+
+- name: Create symlink for /usr/bin/gmake to our built {{ makeVersion }} in /usr/local/bin/make
+  file:
+    src: /usr/local/bin/make
+    dest: /usr/local/bin/gmake
+    owner: root
+    group: root
+    state: link
+  when:
+    - ((((ansible_distribution == "SLES" or ansible_distribution == "openSUSE") and ansible_distribution_major_version == "12") or
+      (ansible_distribution == "Ubuntu" and ansible_distribution_major_version == "14")) and
+      ansible_architecture == "x86_64") or
+      ((ansible_distribution == "RedHat" or ansible_distribution == "CentOS") and ansible_distribution_major_version|int < 8)
+    - goodmake_installed.rc != 0
+  tags: goodmake_source
+
+- name: Remove downloaded packages for gmake
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /tmp/make-{{ makeVersion }}
+    - /tmp/make-{{ makeVersion }}.tar.gz
+  failed_when: false
+  tags: goodmake_source
+
+
+# Disabiling updates to system 'make' to ensure the symlink above doesn't break.
+# See https://github.com/adoptium/infrastructure/issues/1106
+- name: Check if /etc/yum.conf exists
+  stat:
+    path: /etc/yum.conf
+  register: yumconf
+  when:
+    - ((ansible_distribution == "RedHat" or ansible_distribution == "CentOS") and ansible_distribution_major_version|int < 8)
+  tags: goodmake_source
+
+- name: Create /etc/yum.conf and exclude make from updates
+  lineinfile:
+    path: /etc/yum.conf
+    create: yes
+    line: [main]
+  when:
+    - ((ansible_distribution == "RedHat" or ansible_distribution == "CentOS") and ansible_distribution_major_version|int < 8)
+    - not yumconf.stat.exists
+  tags: goodmake_source
+
+- name: Exclude make from updates if /etc/yum.conf does exist
+  lineinfile:
+    path: /etc/yum.conf
+    line: exclude=make
+  when:
+    - ((ansible_distribution == "RedHat" or ansible_distribution == "CentOS") and ansible_distribution_major_version|int < 8)
+  tags: goodmake_source
+
+- name: Configure Apt to exclude make from updating
+  dpkg_selections:
+    name: make
+    state: hold
+  when:
+    - (ansible_distribution == "Ubuntu" and ansible_distribution_major_version == "14")
+  tags: goodmake_source

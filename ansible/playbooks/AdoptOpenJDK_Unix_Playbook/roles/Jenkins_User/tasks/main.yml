@@ -1,0 +1,132 @@
+---
+################
+# Jenkins_User #
+################
+- name: Set Home Folder for Jenkins user
+  set_fact:
+    home_folder: /home/{{ Jenkins_Username }}
+  tags: [jenkins_user, adoptopenjdk]
+
+- name: Set Home Folder for Jenkins user (macos)
+  set_fact:
+    home_folder: /Users/{{ Jenkins_Username }}
+  when:
+    - ansible_distribution == "MacOSX"
+  tags: [jenkins_user, adoptopenjdk]
+
+- name: Set Home Folder for Jenkins user (Solaris)
+  set_fact:
+    home_folder: /export/home/{{ Jenkins_Username }}
+  when:
+    - ansible_distribution == "Solaris"
+  tags: [jenkins_user, adoptopenjdk]
+
+- name: Create Jenkins user
+  action: user name={{ Jenkins_Username }} state=present home={{ home_folder }} shell=/bin/bash
+  failed_when: false
+  when: ansible_distribution != "MacOSX"
+  tags: [jenkins_user, adoptopenjdk]
+
+- name: Create Jenkins user (macOS)
+  action: user name={{ Jenkins_Username }} group=staff state=present home={{ home_folder }} shell=/bin/bash
+  when: ansible_distribution == "MacOSX"
+  tags: [jenkins_user, adoptopenjdk]
+
+- name: Enable SSH login for Jenkins user (macOS)
+  command: dseditgroup -o edit -a {{ Jenkins_Username }} -t staff com.apple.access_ssh
+  failed_when: false
+  when: ansible_distribution == "MacOSX"
+  tags: [jenkins_user, adoptopenjdk]
+
+- name: Create Jenkins user's home folder
+  file:
+    path: /home/{{ Jenkins_Username }}
+    state: directory
+    owner: "{{ Jenkins_Username }}"
+    group: "{{ Jenkins_Username }}"
+    mode: 0700
+  when:
+    - ansible_architecture == "s390x"
+  tags: [jenkins_user, adoptopenjdk]
+
+- name: Create Jenkins user's home folder (Solaris)
+  file:
+    path: /export/home/{{ Jenkins_Username }}
+    state: directory
+    owner: "{{ Jenkins_Username }}"
+    group: staff
+    mode: 0700
+  when:
+    - ansible_distribution == "Solaris"
+  tags: [jenkins_user, adoptopenjdk]
+
+- name: Set Jenkins user's home folder (Solaris)
+  command: usermod -d /export/home/jenkins/ jenkins
+  when:
+    - ansible_distribution == "Solaris"
+  tags: [jenkins_user, adoptopenjdk]
+
+- name: Set authorized key for Jenkins user
+  authorized_key:
+    user: "{{ Jenkins_Username }}"
+    state: present
+    key: "{{ Jenkins_User_SSHKey }}"
+  tags: [jenkins_user, jenkins_authorized_key, adoptopenjdk]
+
+- name: Add github.com to known_hosts
+  known_hosts:
+    name: github.com
+    key: github.com ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAq2A7hRGmdnm9tUDbO9IDSwBK6TbQa+PXYPCPy6rbTrTtw7PHkccKrpp0yVhp5HdEIcKr6pLlVDBfOLX9QUsyCOV0wzfjIJNlGEYsdlLJizHhbn2mUjvSAHQqZETYP81eFzLQNnPHt4EVVUh7VfDESU84KezmD5QlWpXLmvU31/yMf+Se8xhHTvKSCZIFImWwoG6mbUoWf9nzpIoaSjB+weqqUUmpaaasXVal72J+UX2B+2RPW3RcT0eOzQgqlJL3RKrTJvdsjE3JEAvGq3lGHSZXy28G3skua2SmVi/w4yCE6gbODqnTWlg7+wC604ydGXA8VJiS5ap43JXiUFFAaQ==
+    path: "{{ home_folder }}/.ssh/known_hosts"
+    state: present
+  tags: [jenkins_user, adoptopenjdk]
+
+- name: Change ownership of jenkins' ~/.ssh/known_hosts
+  file:
+    path: "{{ home_folder }}/.ssh/known_hosts"
+    owner: "{{ Jenkins_Username }}"
+    mode: 0644
+  tags: [jenkins_user, adoptopenjdk]
+
+- name: Add Jenkins user to the audio group
+  user: name={{ Jenkins_Username }}
+    groups=audio
+    append=yes
+  when:
+    - (ansible_distribution == "Ubuntu" or ansible_distribution == "SLES")
+    - ansible_architecture != "armv7l"
+  tags: [jenkins_user, adoptopenjdk]
+
+- name: Unset expiry on user account for Redhat for Jenkins user
+  command: chage -M -1 -E -1 {{ Jenkins_Username }}
+  tags:
+    - jenkins_user
+    - adoptopenjdk
+    # TODO: write a condition when NOT to run this step
+    - skip_ansible_lint
+  when: ansible_distribution != "MacOSX" and ansible_distribution != "Solaris"
+
+- name: Unset expiry on user account for Redhat for root
+  command: chage -M -1 -E -1 root
+  tags:
+    - jenkins_user
+    - adoptopenjdk
+    # TODO: write a condition when NOT to run this step
+    - skip_ansible_lint
+  when: ansible_distribution != "MacOSX" and ansible_distribution != "Solaris"
+
+- name: Ensure proper limits are set in /etc/security/limits.conf
+  lineinfile:
+    path: /etc/security/limits.conf
+    line: "{{ Jenkins_Username }} {{ item.limit_type }} {{ item.limit_name }} {{ item.limit_value }}"
+    state: present
+  with_items:
+    - {limit_type: 'hard', limit_name: 'nofile', limit_value: '1048576'}
+    - {limit_type: 'hard', limit_name: 'nproc', limit_value: 'unlimited'}
+    - {limit_type: 'hard', limit_name: 'core', limit_value: 'unlimited'}
+  when:
+    - ansible_architecture == "x86_64"
+    - ansible_distribution == "RedHat" or ansible_distribution == "CentOS"
+    - ansible_distribution_major_version == "6" or ansible_distribution_major_version == "7"
+  tags:
+    - jenkins_user

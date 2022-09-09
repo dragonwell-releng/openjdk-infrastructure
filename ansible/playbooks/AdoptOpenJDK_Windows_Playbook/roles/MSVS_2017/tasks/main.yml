@@ -1,0 +1,46 @@
+---
+################################
+# Visual Studio Community 2017 #
+################################
+
+- name: Test if VS 2017 is installed
+  win_stat:
+    path: 'C:\Program Files (x86)\Microsoft Visual Studio\2017\Community'
+  register: vs2017_installed
+  tags: MSVS_2017
+
+# This is the target that you're redirected to when you go to https://aka.ms/vs/15/release/vs_community.exe
+- name: Download Visual Studio Community 2017
+  win_get_url:
+    url: 'https://download.visualstudio.microsoft.com/download/pr/c5c75dfa-1b29-4419-80f8-bd39aed6bcd9/7ed8fa27575648163e07548ff5667b55b95663a2323e2b2a5f87b16284e481e6/vs_Community.exe'
+    checksum: 7ed8fa27575648163e07548ff5667b55b95663a2323e2b2a5f87b16284e481e6
+    checksum_algorithm: sha256
+    dest: 'C:\TEMP\vs_community.exe'
+    force: no
+  when: (not vs2017_installed.stat.exists)
+  tags: MSVS_2017
+
+- name: Install Visual Studio Community 2017
+  win_shell: 'C:\temp\vs_community.exe --wait --add Microsoft.VisualStudio.Workload.NativeDesktop;includeRecommended;includeOptional --quiet --norestart'
+  args:
+    executable: cmd
+  when: (not vs2017_installed.stat.exists)
+  register: vs2017_error
+  failed_when: vs2017_error.rc != 1 and vs2017_error.rc != 0
+  tags: MSVS_2017
+
+- name: Register Visual Studio Community 2017 DIA SDK shared libraries
+  win_command: 'regsvr32 /s "{{ item }}"'
+  with_items:
+    - C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\DIA SDK\bin\msdia140.dll
+    - C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\DIA SDK\bin\amd64\msdia140.dll
+  tags: MSVS_2017
+
+- name: Reboot machine after Visual Studio installation
+  win_reboot:
+    reboot_timeout: 1800
+    shutdown_timeout: 1800
+  when: (not vs2017_installed.stat.exists)
+  tags:
+    - MSVS_2017
+    - reboot

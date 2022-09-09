@@ -1,0 +1,22 @@
+---
+##################
+# macOS Codesign #
+##################
+
+# Since moving to the Eclipse Foundation, we no longer need these steps and so we've changed this role to ensure that no LJC certs exist on the machines.
+# See https://github.com/adoptium/infrastructure/blob/ccdc434d5f13861a03b598e9e34674d978c85d34/ansible/playbooks/AdoptOpenJDK_Unix_Playbook/roles/macos_codesign/tasks/main.yml for the original content.
+
+- name: Remove Jenkins password file
+  file: path="/Users/jenkins/.password" state=absent
+
+- name: Remove Application Certificate
+  shell: |
+    security delete-certificate -c "Developer ID Application: London Jamocha Community CIC" "/Users/jenkins/Library/Keychains/login.keychain-db"
+  become_user: jenkins
+  failed_when: false
+
+- name: Remove Installer Certificate
+  shell: |
+    security delete-certificate -c "Developer ID Installer: London Jamocha Community CIC" "/Users/jenkins/Library/Keychains/login.keychain-db"
+  become_user: jenkins
+  failed_when: false

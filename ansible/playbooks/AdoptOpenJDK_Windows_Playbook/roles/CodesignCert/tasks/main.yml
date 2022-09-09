@@ -1,0 +1,12 @@
+---
+################
+# CodesignCert #
+################
+
+# Since moving to the Eclipse Foundation, we no longer need these steps and so we've changed this role to ensure that no LJC certs exist on the machines.
+# See https://github.com/adoptium/infrastructure/blob/cbadc5c45871c22e6a011999bf5ab3a3fdc926cf/ansible/playbooks/AdoptOpenJDK_Windows_Playbook/roles/CodesignCert/tasks/main.yml for the original content.
+
+- name: Remove windows.p12, if present
+  win_file:
+    path: C:\openjdk\windows.p12
+    state: absent

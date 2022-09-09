@@ -1,0 +1,69 @@
+---
+############
+# NTP_TIME #
+############
+- name: Set timedatectl set-ntp no
+  command: timedatectl set-ntp no
+  when:
+    - (ansible_distribution == "RedHat" and ansible_distribution_major_version == "7") or (ansible_distribution == "Ubuntu") or ((ansible_distribution == "SLES" or ansible_distribution == "openSUSE") and ansible_distribution_major_version == "12") or (ansible_distribution == "centos" and ansible_distribution_major_version == "7" )
+    - not (ansible_distribution == "Ubuntu" and ansible_distribution_major_version >= "20")
+  tags: ntp_time
+
+- name: Ensure systemd-timesyncd service is disabled
+  failed_when: false
+  service:
+    name: systemd-timesyncd
+    enabled: no
+  when:
+    - ansible_distribution != "CentOS" and ansible_distribution != "RedHat"
+    - ansible_distribution != "FreeBSD"
+    - ansible_distribution != "Alpine"
+    - ansible_distribution != "Solaris"
+  tags: ntp_time
+
+- name: Configure NTP server pools
+  shell: "cat /etc/ntp.conf | grep '1.pool.ntp.org' && echo NTP || echo -e 'pool 1.pool.ntp.org\npool 2.pool.ntp.org\npool 3.pool.ntp.org' >> /etc/ntp.conf"
+  tags:
+    - ntp_time
+    # TODO: write a condition when NOT to run this step
+    - skip_ansible_lint
+
+- name: Start NTP for Ubuntu and SLES 11
+  service:
+    name: ntp
+    state: restarted
+    enabled: yes
+  when:
+    - (ansible_distribution == "Ubuntu") or (ansible_distribution == "SLES" and ansible_distribution_major_version == "11")
+  tags: ntp_time
+
+- name: Start NTP for RedHat, SLES 12 and CentOS 7
+  service:
+    name: ntpd
+    state: restarted
+    enabled: yes
+  when:
+    - (ansible_distribution == "RedHat" and ansible_distribution_major_version != "8") or
+      (ansible_distribution == "SLES" and ansible_distribution_major_version == "12") or
+      (ansible_distribution == "centos" and ansible_distribution_major_version == "7" )
+  tags: ntp_time
+
+- name: Start NTP for SUSE12
+  service:
+    name: ntp.service
+    state: restarted
+    enabled: yes
+  when:
+    - (ansible_distribution == "openSUSE" and ansible_distribution_major_version == "12")
+    - ansible_architecture == "x86_64"
+  tags: ntp_time
+
+- name: Start chronyd for RHEL8 and SLES15
+  service:
+    name: chronyd
+    state: restarted
+    enabled: yes
+  when:
+    - (ansible_distribution == "RedHat" and ansible_distribution_major_version == "8") or
+      (ansible_distribution == "SLES" and ansible_distribution_major_version == "15")
+  tags: ntp_time

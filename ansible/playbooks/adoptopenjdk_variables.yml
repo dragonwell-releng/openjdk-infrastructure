@@ -1,0 +1,13 @@
+---
+# AdoptOpenJDK variables file
+Jenkins_Username: jenkins
+Nagios_Plugins: Enabled
+Slack_Notification: Disabled
+Superuser_Account: Enabled
+jckftp_Username: jckftp
+Asian_Locales: Disabled
+# Jcktestr User Variables:
+Jcktestr_Username: jcktestr
+Jcktestr_User_SSHKey: /Vendor_Files/keys/keybox.key
+# AIX variable
+bootjdk: openj9

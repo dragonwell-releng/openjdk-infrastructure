@@ -1,0 +1,206 @@
+---
+
+#
+# Updates all packages for macos-based distributions
+#
+
+# Issue https://github.com/adoptium/infrastructure/issues/1902
+- name: Ensure ansible version is greater than 2.11
+  fail:
+    msg: "The version of Ansible you are using needs to be greater than 2.11"
+  when: ansible_version.full is version('2.11', '<=')
+
+- name: Get macOS version
+  shell: sw_vers -productVersion
+  register: macos_version
+  changed_when: false
+
+- name: Set macos version
+  set_fact:
+    macos_version_number: "{{ macos_version.stdout.split('.')[0] }}.{{ macos_version.stdout.split('.')[1] }}"
+
+- name: Display macOS Version
+  debug:
+    var: macos_version_number
+
+- name: Configure system-wide Bash profile
+  become: yes
+  copy:
+    src: files/macos/profile
+    dest: /etc/profile
+    owner: root
+    group: wheel
+
+- name: Ensure that directory for system-wide profile extensions is present
+  become: yes
+  file:
+    path: /etc/profile.d
+    owner: root
+    group: wheel
+    state: directory
+
+# Skipping linting as no situation where this can't run (lint error 301)
+- name: Check for xcode-tools
+  raw: xcode-select --print-path &> /dev/null
+  register: xcode
+  failed_when: false
+  tags:
+    - skip_ansible_lint
+
+# Currently required to install packages. This can be removed once it installs on arm64
+- name: Install Rosetta 2
+  command: /usr/sbin/softwareupdate --install-rosetta --agree-to-license
+  when:
+    - ansible_architecture == "arm64"
+  tags:
+    - rosetta
+
+- name: Check if Homebrew is already installed
+  stat:
+    path: /usr/local/bin/brew
+  register: brew
+
+- name: Install Homebrew
+  become: yes
+  become_user: "{{ ansible_user }}"
+  script: scripts/install-homebrew.sh
+  when: not brew.stat.exists
+
+- name: Upgrade installed packages
+  become: yes
+  become_user: "{{ ansible_user }}"
+  homebrew:
+    upgrade_all: yes
+  when: "macos_version_number is version('10.13', '>')"
+  tags:
+    - brew_upgrade
+
+- name: Install brew cu
+  become: yes
+  become_user: "{{ ansible_user }}"
+  homebrew_tap:
+    name: buo/cask-upgrade
+  tags:
+    - brew_cu
+
+- name: Add AdoptOpenJDK Java Repo
+  become: yes
+  become_user: "{{ ansible_user }}"
+  homebrew_tap:
+    name: AdoptOpenJDK/openjdk
+
+# Skipping linting as no situation where this can't run (lint error 301)
+- name: Update Casks
+  become: yes
+  become_user: "{{ ansible_user }}"
+  command: /usr/local/bin/brew cu
+  when:
+    - ansible_architecture != "arm64"
+  tags:
+    - brew_cu
+    - skip_ansible_lint
+
+# Skipping linting as no situation where this can't run (lint error 301)
+- name: Update Casks (Arm64)
+  become: yes
+  become_user: "{{ ansible_user }}"
+  command: /opt/homebrew/bin/brew cu
+  when:
+    - ansible_architecture == "arm64"
+  tags:
+    - brew_cu
+    - skip_ansible_lint
+
+- name: Install Build Tool Packages
+  become: yes
+  become_user: "{{ ansible_user }}"
+  homebrew: "name={{ item }} state=present"
+  with_items: "{{ Build_Tool_Packages }}"
+  tags: build_tools
+
+- name: Install Build Tool Packages NOT macOS 10.12
+  become: yes
+  become_user: "{{ ansible_user }}"
+  homebrew: "name={{ item }} state=present"
+  with_items: "{{ Build_Tool_Packages_NOT_10_12 }}"
+  when:
+    - not (macos_version_number | regex_search("10.12"))
+  tags: build_tools
+
+- name: Install Build Tool Casks
+  become: yes
+  become_user: "{{ ansible_user }}"
+  homebrew_cask: "name={{ item }} state=present"
+  with_items: "{{ Build_Tool_Casks }}"
+  tags: build_tools
+
+- name: Install Test Tool Packages
+  become: yes
+  become_user: "{{ ansible_user }}"
+  homebrew: "name={{ item }} state=present"
+  with_items: "{{ Test_Tool_Packages }}"
+  tags: test_tools
+
+- name: Install JCK Tool Casks
+  become: yes
+  become_user: "{{ ansible_user }}"
+  homebrew_cask: "name={{ item }} state=present"
+  with_items: "{{ JCK_Tool_Casks }}"
+  tags: jck_tools
+
+# Used for JCK printer tests
+- name: Check if PDFwriter is installed
+  stat:
+    path: /Users/Shared/PDFwriter/
+  register: pdfwriter
+  tags: jck_tools
+
+- name: Download PDFwriter
+  command: wget https://github.com/rodyager/RWTS-PDFwriter/releases/download/v1.0.1/RWTS-PDFwriter.pkg
+  when: not pdfwriter.stat.exists
+  tags: jck_tools
+
+- name: Install PDFwriter
+  command: installer -pkg ./RWTS-PDFwriter.pkg -target /
+  when: not pdfwriter.stat.exists
+  tags: jck_tools
+
+# As per https://github.com/eclipse/openj9/issues/3790
+- name: Creating /etc/sysctl.conf for kernel tunings
+  file:
+    path: /etc/sysctl.conf
+    state: touch
+    mode: 0644
+    owner: root
+    group: wheel
+  tags:
+    - kernel_tuning
+
+- name: Writing kernel tuning parameters to /etc/sysctl.conf
+  blockinfile:
+    path: /etc/sysctl.conf
+    block: |
+      kern.sysv.shmmax=125839605760
+      kern.sysv.shmall=30722560
+  register: kernel
+  tags:
+    - kernel_tuning
+
+- name: Allow staff users to generate core dumps
+  file:
+    path: /cores
+    state: directory
+    mode: 0774
+    owner: root
+    group: staff
+  tags:
+    - core_dumps
+
+# Skipping linting as not to introduce handlers into task-only playbooks (lint error 503)
+- name: Reboot macOS after tweaking kernel tuning parameters
+  reboot:
+    reboot_timeout: 3600
+  when: kernel.changed
+  tags:
+    - kernel_tuning
+    - skip_ansible_lint

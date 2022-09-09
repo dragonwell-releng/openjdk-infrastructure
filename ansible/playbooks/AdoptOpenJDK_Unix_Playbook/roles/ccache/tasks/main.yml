@@ -1,0 +1,53 @@
+---
+##########
+# ccache #
+##########
+
+- name: Set ccache version
+  set_fact: ccacheVersion=3.4.2
+  tags: ccache
+
+- name: Check if ccache is already installed
+  shell: ccache --version >/dev/null
+  failed_when: false
+  register: ccache_status
+  changed_when: false
+  tags: ccache
+
+- name: Download ccache.tar.gz
+  command: wget -O /tmp/ccache.tar.gz https://github.com/ccache/ccache/releases/download/v{{ ccacheVersion }}/ccache-{{ ccacheVersion }}.tar.gz
+    warn=False
+  when: ccache_status.rc != 0
+  tags: ccache
+
+- name: Extract ccache
+  unarchive:
+    src: /tmp/ccache.tar.gz
+    dest: /tmp
+    copy: False
+  when: ccache_status.rc != 0
+  tags: ccache
+
+- name: Running ./configure & make for CCACHE
+  shell: cd /tmp/ccache-{{ ccacheVersion }} && ./configure && make clean && make -j {{ ansible_processor_vcpus }} && make install
+  when:
+    - ccache_status.rc != 0
+    - ansible_distribution != "FreeBSD"
+  tags: ccache
+
+- name: Running ./configure & make for CCACHE for FreeBSD
+  shell: cd /tmp/ccache-{{ ccacheVersion }} && ./configure && make -j {{ ansible_processor_vcpus }} && gmake install
+  when:
+    - ccache_status.rc != 0
+    - ansible_distribution == "FreeBSD"
+  tags: ccache
+
+- name: Remove downloaded packages for ccache
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /tmp/ccache.tar.gz
+    - /tmp/ccache-{{ ccacheVersion }}
+  failed_when: false
+  tags: ccache

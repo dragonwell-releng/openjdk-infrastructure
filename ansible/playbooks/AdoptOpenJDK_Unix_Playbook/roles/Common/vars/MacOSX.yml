@@ -1,0 +1,32 @@
+---
+##########
+# macOS #
+##########
+
+# Command Build Tool Packages
+
+Build_Tool_Packages:
+  - autoconf
+  - cmake # OpenJ9
+  - coreutils
+  - gnupg
+  - gnu-sed
+  - gnu-tar
+  - nasm # openj9 jdk13+
+  - wget
+  - bash # OpenJ9 needs bash v4 or later
+
+Build_Tool_Packages_NOT_10_12:
+  - ccache # ccache is no longer working on macOS 10.12
+
+Build_Tool_Casks:
+  - adoptopenjdk10
+  - packages
+
+Test_Tool_Packages:
+  - mercurial
+  - pulseaudio
+
+JCK_Tool_Casks:
+  - blackhole-2ch # Used to emulate a line in feed for JCK tests
+  - thunderbird # Used to run JCK email tests

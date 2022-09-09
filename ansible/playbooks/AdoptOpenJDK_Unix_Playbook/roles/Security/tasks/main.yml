@@ -1,0 +1,113 @@
+---
+############
+# Security #
+############
+
+##################
+# authorized_key #
+##################
+- name: Ensure 'no-agent-forwarding' doesn't exist in root's authorized_key file
+  lineinfile:
+    path: /root/.ssh/authorized_key
+    state: absent
+    regexp: '^no-agent-forwarding'
+  when:
+    - Security == "Enabled"
+  tags: [security, adoptopenjdk]
+
+- name: Ensure keybox's ssh key is applied to root's authorized_key file
+  authorized_key:
+    user: root
+    state: present
+    key: "{{ Keybox_SSHKey }}"
+  when:
+    - Security == "Enabled"
+  tags: [security, adoptopenjdk]
+
+###############
+# sshd_config #
+###############
+- name: Security - Disable Password Authentication for all users
+  lineinfile: dest=/etc/ssh/sshd_config
+              regexp="^PasswordAuthentication"
+              line="PasswordAuthentication no"
+              state=present
+  when:
+    - Security == "Enabled"
+  tags: [security, adoptopenjdk]
+
+- name: Security - Disable Password Authentication for root user
+  lineinfile: dest=/etc/ssh/sshd_config
+              regexp="^PermitRootLogin"
+              line="PermitRootLogin without-password"
+              state=present
+  when:
+    - Security == "Enabled"
+  tags: [security, adoptopenjdk]
+
+- name: Security - Disable ChallengeResponseAuthentication for all users
+  lineinfile: dest=/etc/ssh/sshd_config
+              regexp="^ChallengeResponseAuthentication"
+              line="ChallengeResponseAuthentication no"
+              state=present
+  when:
+    - Security == "Enabled"
+  tags: [security, adoptopenjdk]
+
+- name: Restart ssh service
+  service:
+    name: ssh
+    state: restarted
+    enabled: yes
+  failed_when: false
+  when:
+    - Security == "Enabled"
+    - ansible_distribution != "Solaris"
+  tags: [security, adoptopenjdk]
+
+- name: Restart ssh service (Solaris)
+  command: svcadm restart ssh
+  when:
+    - Security == "Enabled"
+    - ansible_distribution == "Solaris"
+  tags: [security, adoptopenjdk]
+
+- name: Restart sshd service
+  service:
+    name: sshd
+    state: restarted
+    enabled: yes
+  failed_when: false
+  when:
+    - Security == "Enabled"
+    - ansible_distribution != "Solaris"
+  tags: [security, adoptopenjdk]
+
+##################
+# Account Policy #
+##################
+- name: Account policy - expire date
+  command: chage -E -1 "{{ item }}"
+  failed_when: false
+  with_items:
+    - root
+    - "{{ Jenkins_Username }}"
+    - nagios
+    - zeus
+  when:
+    - Security == "Enabled"
+    - ansible_distribution != "FreeBSD"
+  tags: [security, adoptopenjdk]
+
+- name: Account policy - max days
+  command: chage -M -1 "{{ item }}"
+  failed_when: false
+  with_items:
+    - root
+    - "{{ Jenkins_Username }}"
+    - nagios
+    - zeus
+  when:
+    - Security == "Enabled"
+    - ansible_distribution != "FreeBSD"
+  tags: [security, adoptopenjdk]

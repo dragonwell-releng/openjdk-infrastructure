@@ -1,0 +1,278 @@
+---
+##########
+# CentOS #
+##########
+
+#########################################
+# Configure Repos and Update the system #
+#########################################
+- name: Enable EPEL release (not CentOS8)
+  yum:
+    name: epel-release
+    state: installed
+    update_cache: yes
+    validate_certs: no
+  when: ansible_distribution_major_version != "8"
+  tags: patch_update
+
+- name: Enable EPEL release for CentOS8
+  yum: name=https://dl.fedoraproject.org/pub/epel/epel-release-latest-{{ ansible_distribution_major_version }}.noarch.rpm
+  failed_when: false
+  when:
+    - ansible_architecture != "s390x"
+    - ansible_distribution_major_version == "8"
+  tags: patch_update
+
+- name: Enable CentOS-PowerTools repo for CentOS8
+  replace:
+    path: /etc/yum.repos.d/CentOS-Linux-PowerTools.repo
+    regexp: 'enabled=0'
+    replace: "enabled=1"
+  failed_when: false
+  when:
+    - ansible_distribution_major_version == "8"
+  tags: patch_update
+
+- name: Clean dnf cache
+  shell: dnf clean all && rm -rf /var/cache/dnf
+  when:
+    - ansible_distribution_major_version == "8"
+  tags: patch_update
+
+- name: YUM upgrade all packages
+  yum:
+    name: '*'
+    state: latest
+  tags: patch_update
+
+############################
+# Build Packages and tools #
+############################
+- name: Call Build Packages and Tools Task
+  include_tasks: build_packages_and_tools.yml
+
+##########################
+# Additional build tools #
+##########################
+- name: Install additional build tools for CentOS 7
+  package: "name={{ item }} state=latest"
+  with_items: "{{ Additional_Build_Tools_CentOS7 }}"
+  when: ansible_distribution_major_version == "7"
+  tags: build_tools
+
+- name: Install additional build tools for CentOS 8
+  package: "name={{ item }} state=latest"
+  with_items: "{{ Additional_Build_Tools_CentOS8 }}"
+  when: ansible_distribution_major_version == "8"
+  tags: build_tools
+
+- name: Install additional build tools for NOT CentOS8
+  package: "name={{ item }} state=latest"
+  with_items: "{{ Additional_Build_Tools_NOT_CentOS8 }}"
+  when:
+    - ansible_distribution_major_version != "8"
+  tags: build_tools
+
+- name: Install numactl-devel excluding CENT 7 on s390x
+  package: "name=numactl-devel state=latest"
+  when:
+    - ! (ansible_distribution_major_version == "7" and ansible_architecture == "s390x")
+  tags: build_tools
+
+- name: Add devtools-2 to yum repo list for gcc 4.8
+  get_url:
+    url: https://people.centos.org/tru/devtools-2/devtools-2.repo
+    dest: /etc/yum.repos.d/devtools-2.repo
+    timeout: 25
+    checksum: sha256:a8ebeb4bed624700f727179e6ef771dafe47651131a00a78b342251415646acc
+  when:
+    - ansible_distribution_major_version == "6"
+  tags: build_tools
+
+- name: Install gcc4.8
+  package: "name={{ item }} state=latest"
+  with_items: "{{ gcc48_devtoolset_compiler }}"
+  when:
+    - ansible_distribution_major_version == "6"
+  tags: build_tools
+
+
+- name: Install CentOS SCL x86_64 repo for gcc7.3
+  package: "name=centos-release-scl state=latest"
+  when:
+    - ansible_architecture == "x86_64"
+    - ansible_distribution_major_version != "8"
+  tags: build_tools
+
+- name: Sed change the baseurl for CentOS SCL (CentOS6)
+  shell: |
+    sed -i -e 's!^mirrorlist!#mirrorlist!g' /etc/yum.repos.d/CentOS-SCLo-scl*.repo
+    sed -i -e 's!^#.*baseurl=http://mirror.centos.org/centos/6/!baseurl=https://vault.centos.org/6.10/!g' /etc/yum.repos.d/CentOS-SCLo-scl*.repo
+  when:
+    - ansible_architecture == "x86_64" and ansible_distribution_major_version == "6"
+  tags: build_tools
+
+- name: Install additional build tools for CentOS on x86
+  package: "name={{ item }} state=latest"
+  with_items: "{{ Additional_Build_Tools_CentOS_x86 }}"
+  when:
+    - ansible_architecture == "x86_64"
+  tags: build_tools
+
+- name: Create symlink for /opt/rh/devtoolset-2/root/usr/bin/gcc to gcc
+  file:
+    src: /opt/rh/devtoolset-2/root/usr/bin/gcc
+    dest: /usr/bin/gcc
+    force: true
+    owner: root
+    group: root
+    state: link
+  when:
+    - ansible_distribution_major_version == "6"
+  tags: build_tools
+
+- name: Create symlink for /opt/rh/devtoolset-2/root/usr/bin/g++ to g++
+  file:
+    src: /opt/rh/devtoolset-2/root/usr/bin/g++
+    dest: /usr/bin/g++
+    force: true
+    owner: root
+    group: root
+    state: link
+  when:
+    - ansible_distribution_major_version == "6"
+  tags: build_tools
+
+- name: Create symlink for /opt/rh/devtoolset-2/root/usr/bin/c++ to c++
+  file:
+    src: /opt/rh/devtoolset-2/root/usr/bin/c++
+    dest: /usr/bin/c++
+    force: true
+    owner: root
+    group: root
+    state: link
+  when:
+    - ansible_distribution_major_version == "6"
+  tags: build_tools
+
+##############################
+# expat on CentOS on x86_64 #
+##############################
+- name: Install expat
+  get_url:
+    url: https://github.com/libexpat/libexpat/releases/download/R_2_2_5/expat-2.2.5.tar.bz2
+    dest: /tmp/
+    mode: 0440
+    timeout: 25
+    validate_certs: no
+    checksum: sha256:d9dc32efba7e74f788fcc4f212a43216fc37cf5f23f4c2339664d473353aedf6
+  when:
+    - ansible_architecture == "x86_64"
+  tags: expat
+
+- name: Extract expat
+  unarchive:
+    src: /tmp/expat-2.2.5.tar.bz2
+    dest: /tmp/
+    copy: False
+  when:
+    - ansible_architecture == "x86_64"
+  tags: expat
+
+- name: Running ./configure & make for expat
+  shell: cd /tmp/expat-2.2.5 && ./configure && make -j {{ ansible_processor_vcpus }} && sudo make install
+  become: yes
+  when:
+    - ansible_architecture == "x86_64"
+  tags: expat
+
+####################
+# Set Default Java #
+####################
+
+- name: Find Default JRE
+  stat:
+    path: /usr/lib/jvm/jre-1.8.0
+  register: jre_path
+  tags: default_java
+
+- name: Find Default JDK
+  stat:
+    path: /usr/lib/jvm/java-1.8.0
+  register: jdk_path
+  tags: default_java
+
+- name: Set Default JRE (CentOS 6)
+  alternatives:
+    name: java
+    path: "/usr/lib/jvm/jre-1.8.0-openjdk.{{ ansible_architecture }}/bin/java"
+  when:
+    - ansible_distribution_major_version == "6"
+  tags: default_java
+
+- name: Set Default JRE (CentOS 7 and later)
+  alternatives:
+    name: java
+    path: "{{ jre_path.stat.lnk_source }}/bin/java"
+  when:
+    - ansible_distribution_major_version > "6"
+  tags: default_java
+
+- name: Set Default JDK (CentOS 6)
+  alternatives:
+    name: javac
+    path: "/usr/lib/jvm/java-1.8.0-openjdk.{{ ansible_architecture }}/bin/javac"
+  when:
+    - ansible_distribution_major_version == "6"
+  tags: default_java
+
+- name: Set Default JDK (CentOS 7 and later)
+  alternatives:
+    name: javac
+    path: "{{ jdk_path.stat.lnk_source }}/bin/javac"
+  when:
+    - ansible_distribution_major_version > "6"
+  tags: default_java
+
+###########
+# Locales #
+###########
+
+# Skipping linting as no alternative to shell can be used (lint error 305)
+- name: Get locale list
+  shell: locale -a
+  register: localeList
+  changed_when: false
+  tags:
+    - locales
+    - skip_ansible_lint
+
+# Skipping linting as locale_gen module isn't usable on CentOS6/7
+# https://github.com/ansible/ansible/issues/44708
+- name: Create Japanese locale
+  shell: localedef -i ja_JP -c -f UTF-8 ja_JP.UTF-8
+  when: localeList.stdout|lower is not search("ja_jp\.utf8")
+  tags:
+    - locales
+    - skip_ansible_lint
+
+- name: Create Korean locale
+  shell: localedef -i ko_KR -c -f UTF-8 ko_KR.UTF-8
+  when: localeList.stdout|lower is not search("ko_kr\.utf8")
+  tags:
+    - locales
+    - skip_ansible_lint
+
+- name: Create Chinese locale
+  shell: localedef -i zh_CN -c -f UTF-8 zh_CN.UTF-8
+  when: localeList.stdout|lower is not search("zh_cn\.utf8")
+  tags:
+    - locales
+    - skip_ansible_lint
+
+- name: Create Taiwanese locale
+  shell: localedef -i zh_TW -c -f UTF-8 zh_TW.UTF-8
+  when: localeList.stdout|lower is not search("zh_tw\.utf8")
+  tags:
+    - locales
+    - skip_ansible_lint

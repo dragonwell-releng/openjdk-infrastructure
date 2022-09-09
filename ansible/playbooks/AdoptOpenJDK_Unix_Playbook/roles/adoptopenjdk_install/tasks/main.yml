@@ -1,0 +1,292 @@
+---
+##############################################################
+# ansible install adoptopenjdk into /usr/lib/jvm/JDK_VERSION #
+##############################################################
+
+# Conditions:
+# Check if target is installed
+# Proceed with installing to /usr/lib/jvm
+
+- name: Set path variable when jdk_version == 8
+  set_fact:
+    path: /usr/lib/jvm/jdk8
+  when:
+    - ansible_distribution != "MacOSX"
+    - jdk_version == 8
+  tags: adoptopenjdk_install
+
+- name: Set path variable when jdk_version != 8
+  set_fact:
+    path: /usr/lib/jvm/jdk-{{ jdk_version }}
+  when:
+    - jdk_version != 8
+    - ansible_distribution != "MacOSX"
+  tags: adoptopenjdk_install
+
+- name: Set path variable (macOS)
+  set_fact:
+    path: "/Library/Java/JavaVirtualMachines/jdk-{{ jdk_version }}"
+  when: ansible_distribution == "MacOSX"
+  tags: adoptopenjdk_install
+
+- name: Set api_architecture variable
+  set_fact:
+    api_architecture: "{{ ansible_architecture }}"
+  tags: adoptopenjdk_install
+
+- name: Set api_architecture variable for x86_64
+  set_fact:
+    api_architecture: x64
+  when:
+    - ansible_architecture == "x86_64"
+  tags: adoptopenjdk_install
+
+- name: Set api_architecture variable for sun4v
+  set_fact:
+    api_architecture: sparcv9
+  when:
+    - ansible_architecture == "sun4v"
+  tags: adoptopenjdk_install
+
+- name: Set api_architecture variable for i386
+  set_fact:
+    api_architecture: x64
+  when:
+    - ansible_os_family != "Darwin"
+    - ansible_architecture == "i386"
+  tags: adoptopenjdk_install
+
+# Download x64 binaries until we have arm64 binaries available
+- name: Set x64 api_architecture variable for macOS Arm64
+  set_fact:
+    api_architecture: x64
+  when:
+    - ansible_os_family == "Darwin"
+    - ansible_architecture == "arm64"
+    - jdk_version < 17
+    - jdk_version != 11
+  tags: adoptopenjdk_install
+
+- name: Set aarch64 api_architecture variable for macOS Arm64
+  set_fact:
+    api_architecture: aarch64
+  when:
+    - ansible_os_family == "Darwin"
+    - ansible_architecture == "arm64"
+    - jdk_version >= 17 or jdk_version == 11
+  tags: adoptopenjdk_install
+
+- name: Set api_architecture variable for armv7l
+  set_fact:
+    api_architecture: arm
+  when:
+    - ansible_architecture == "armv7l"
+  tags: adoptopenjdk_install
+
+- name: Print api_architecture var
+  debug:
+    var: api_architecture
+  tags: adoptopenjdk_install
+
+- name: Checking for /usr/lib/jvm
+  stat: path=/usr/lib/jvm
+  register: usr_lib_jvm_exists
+  when:
+    - ansible_distribution != "MacOSX"
+  tags: adoptopenjdk_install
+
+- name: Creating /usr/lib/jvm if not found
+  file:
+    path: /usr/lib/jvm
+    state: directory
+    owner: root
+    mode: 0755
+  when:
+    - ansible_distribution != "MacOSX"
+    - not usr_lib_jvm_exists.stat.exists
+  tags: adoptopenjdk_install
+
+- name: Check if jdk-{{ jdk_version }} is already installed in the target location
+  shell: ls -ld {{ path }} >/dev/null 2>&1
+  failed_when: false
+  register: adoptopenjdk_installed
+  changed_when: false
+  tags:
+    - adoptopenjdk_install
+    - skip_ansible_lint
+
+- name: Install latest release if one not already installed
+  unarchive:
+    src: https://api.adoptopenjdk.net/v3/binary/latest/{{ jdk_version }}/ga/linux/{{ api_architecture }}/jdk/{{ bootjdk }}/normal/adoptopenjdk?project=jdk
+    dest: /usr/lib/jvm
+    remote_src: yes
+  retries: 3
+  delay: 5
+  register: adoptopenjdk_download
+  until: adoptopenjdk_download is not failed
+  when:
+    - ansible_distribution != "MacOSX"
+    - not ((ansible_distribution == "RedHat" or ansible_distribution == "CentOS") and ansible_distribution_major_version == "6")
+    - ansible_os_family != "Solaris"
+    - adoptopenjdk_installed.rc != 0
+  tags: adoptopenjdk_install
+
+- name: Install latest release if one not already installed (alpine-linux)
+  unarchive:
+    src: https://api.adoptopenjdk.net/v3/binary/latest/{{ jdk_version }}/ga/alpine-linux/{{ api_architecture }}/jdk/{{ bootjdk }}/normal/adoptopenjdk?project=jdk
+    dest: /usr/lib/jvm
+    remote_src: yes
+  retries: 3
+  delay: 5
+  register: adoptopenjdk_download
+  until: adoptopenjdk_download is not failed
+  when:
+    - ansible_distribution == "Alpine"
+    - adoptopenjdk_installed.rc != 0
+  tags: adoptopenjdk_install
+
+# CentOS6 needs it's own task so it can use a different python interpreter.
+# See: https://github.com/adoptium/infrastructure/issues/1877
+- name: Install latest release if not already installed (CentOS6)
+  unarchive:
+    src: https://api.adoptopenjdk.net/v3/binary/latest/{{ jdk_version }}/ga/linux/{{ api_architecture }}/jdk/{{ bootjdk }}/normal/adoptopenjdk?project=jdk
+    dest: /usr/lib/jvm
+    remote_src: yes
+  vars:
+    ansible_python_interpreter: /usr/local/python2/bin/python2.7
+  retries: 3
+  delay: 5
+  register: adoptopenjdk_download
+  until: adoptopenjdk_download is not failed
+  when:
+    - (ansible_distribution == "RedHat" or ansible_distribution == "CentOS") and ansible_distribution_major_version == "6"
+    - adoptopenjdk_installed.rc != 0
+  tags: adoptopenjdk_install
+
+- name: Install latest release if one not already installed (macOS)
+  get_url:
+    url: https://api.adoptopenjdk.net/v3/installer/latest/{{ jdk_version }}/ga/mac/{{ api_architecture }}/jdk/{{ bootjdk }}/normal/adoptopenjdk?project=jdk
+    dest: /tmp/{{ jdk_version }}-installer.pkg
+  register: adoptopenjdk_download
+  until: adoptopenjdk_download is not failed
+  when:
+    - ansible_distribution == "MacOSX"
+    - adoptopenjdk_installed.rc != 0
+    - jdk_version != 10
+  tags: adoptopenjdk_install
+
+- name: Run installer (macOS)
+  shell: sudo installer -pkg /tmp/{{ jdk_version }}-installer.pkg -target /
+  when:
+    - ansible_distribution == "MacOSX"
+    - adoptopenjdk_installed.rc != 0
+    - jdk_version != 10
+  tags: adoptopenjdk_install
+
+- name: Download tarball when installer is not available (MacOS)
+  unarchive:
+    src: https://api.adoptopenjdk.net/v3/binary/latest/{{ jdk_version }}/ga/mac/{{ api_architecture }}/jdk/{{ bootjdk }}/normal/adoptopenjdk?project=jdk
+    remote_src: yes
+    dest: /Library/Java/JavaVirtualMachines/
+  become: yes
+  become_user: root
+  retries: 3
+  delay: 5
+  register: adoptopenjdk_download
+  until: adoptopenjdk_download is not failed
+  when:
+    - ansible_distribution == "MacOSX"
+    - adoptopenjdk_installed.rc != 0
+    - jdk_version == 10
+  tags: adoptopenjdk_install
+
+# Boot JDK will be installed in temurin directory. Playbooks, build and (possibly) test scripts will look for an adoptopenjdk directory
+# https://github.com/adoptium/infrastructure/issues/2281#issuecomment-1059322275
+
+- name: Find bootjdk install directory (MacOS)
+  find:
+    paths: /Library/Java/JavaVirtualMachines
+    patterns:
+      - "^adoptopenjdk-{{ jdk_version }}.jdk"
+      - "^temurin-{{ jdk_version }}.jdk"
+      - "^jdk-{{ jdk_version }}.*"
+    use_regex: yes
+    file_type: directory
+  register: bootjdk_install_dir
+  when:
+    - ansible_distribution == "MacOSX"
+    - adoptopenjdk_installed.rc != 0
+  tags: adoptopenjdk_install
+
+- name: Create jdk symlink to bootjdk install directory (MacOS)
+  file:
+    src: '{{ bootjdk_install_dir.files[0].path }}'
+    dest: '{{ path }}'
+    state: link
+    owner: root
+    group: wheel
+  become: yes
+  become_user: root
+  become_method: sudo
+  when:
+    - ansible_distribution == "MacOSX"
+    - adoptopenjdk_installed.rc != 0
+  tags: adoptopenjdk_install
+
+- name: Install latest release if one not already installed (Solaris)
+  command: wget https://api.adoptopenjdk.net/v3/binary/latest/{{ jdk_version }}/ga/solaris/{{ api_architecture }}/jdk/{{ bootjdk }}/normal/adoptopenjdk?project=jdk -O /tmp/jdk-{{ jdk_version }}.tar.gz
+  register: adoptopenjdk_download
+  until: adoptopenjdk_download is not failed
+  when:
+    - ansible_os_family == "Solaris"
+    - adoptopenjdk_installed.rc != 0
+  tags: adoptopenjdk_install
+
+- name: Extract latest release if one not already installed (Solaris)
+  command: tar -xf /tmp/jdk-{{ jdk_version }}.tar.gz -C /usr/lib/jvm
+  register: adoptopenjdk_download
+  until: adoptopenjdk_download is not failed
+  when:
+    - ansible_os_family == "Solaris"
+    - adoptopenjdk_installed.rc != 0
+  tags: adoptopenjdk_install
+
+- name: Get {{ path }}* full path name
+  shell: set -o pipefail | ls -ld {{ path }}* 2>/dev/null | awk '{print $9}'
+  register: adoptopenjdk_dir
+  changed_when: false
+  when:
+    - ansible_distribution != "MacOSX"
+    - adoptopenjdk_installed.rc != 0
+  tags: adoptopenjdk_install
+
+- name: Create symlink to major version
+  file:
+    src: '{{ adoptopenjdk_dir.stdout }}'
+    dest: '{{ path }}'
+    state: link
+  when:
+    - ansible_distribution != "MacOSX"
+    - adoptopenjdk_installed.rc != 0
+  tags: adoptopenjdk_install
+
+- name: Create symlink to major version
+  file:
+    src: '{{ adoptopenjdk_dir.stdout }}'
+    dest: '{{ path }}'
+    state: link
+  when:
+    - ansible_distribution != "MacOSX"
+    - adoptopenjdk_installed.rc != 0
+  tags: adoptopenjdk_install
+
+- name: Chown {{ path }}*
+  file:
+    path: '{{ adoptopenjdk_dir.stdout }}'
+    state: directory
+    owner: root
+    recurse: yes
+  when:
+    - ansible_distribution != "MacOSX"
+    - adoptopenjdk_installed.rc != 0
+  tags: adoptopenjdk_install

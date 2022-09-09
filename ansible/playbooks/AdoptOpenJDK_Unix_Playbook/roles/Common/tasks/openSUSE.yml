@@ -1,0 +1,180 @@
+---
+############
+# OpenSUSE #
+############
+
+#########################################
+# Configure Repos and Update the system #
+#########################################
+
+- name: Add devel-tools repository (SUSE12, s390x)
+  zypper_repository:
+    name: devel-tools
+    repo: 'https://download.opensuse.org/repositories/devel:/tools:/scm/openSUSE_Factory_zSystems/'
+    auto_import_keys: yes
+    state: present
+  when:
+    - (ansible_distribution_major_version == "12" and ansible_architecture == "s390x")
+  tags: patch_update
+
+- name: Add gcc48 repository (SUSE12)
+  zypper_repository:
+    repo: 'https://download.opensuse.org/repositories/devel:/gcc/SLE-12/devel:gcc.repo'
+    auto_import_keys: yes
+    state: present
+  when:
+    - (ansible_distribution_major_version == "12")
+  tags: SUSE_gcc48
+
+- name: Sed change gpgcheck for gcc repo on x86_64
+  replace:
+    path: /etc/zypp/repos.d/devel_gcc.repo
+    regexp: 'gpgcheck=1'
+    replace: "gpgcheck=0"
+  when:
+    - (ansible_distribution_major_version == "12" and ansible_architecture == "x86_64")
+  tags: SUSE_gcc48
+
+# Skipping ansible lint as shell module is required to use the --force-resolution option (lint error 305)
+- name: Install gcc48
+  shell: zypper -n in --force-resolution gcc48
+  when:
+    - (ansible_distribution_major_version == "12" and ansible_architecture == "x86_64")
+  tags:
+    - patch_update
+    - skip_ansible_lint
+
+- name: zypper upgrade all packages
+  zypper: name='*' state=latest update_cache=yes
+  tags: patch_update
+
+############################
+# Build Packages and tools #
+############################
+- name: Call Build Packages and Tools Task
+  include_tasks: build_packages_and_tools.yml
+
+##########################
+# Additional build tools #
+##########################
+- name: Install additional build tools for SUSE12
+  package: "name={{ item }} state=latest"
+  with_items: "{{ Additional_Build_Tools_SUSE12 }}"
+  when:
+    - ansible_distribution_major_version == "12"
+  tags: build_tools
+
+- name: Install additional build tools for SUSE on x86
+  package: "name={{ item }} state=latest"
+  with_items: "{{ Additional_Build_Tools_SUSE_x86 }}"
+  when:
+    - ansible_architecture == "x86_64"
+  tags: build_tools
+
+#################
+# xorg Packages #
+#################
+- name: Install xorg-x11-xauth on SUSE11
+  zypper: name=xorg-x11-xauth state=installed
+  when:
+    - ansible_distribution_major_version == "11"
+  tags: test_tools
+
+- name: Install xauth on SUSE12
+  zypper: name=xauth state=installed
+  when:
+    - ansible_distribution_major_version == "12"
+  tags: test_tools
+
+#########################
+# Install AdoptOpenJDK8 #
+#########################
+
+- name: Checking for /usr/lib/jvm
+  stat: path=/usr/lib/jvm
+  register: usr_lib_jvm_exists
+  tags: java8_SUSE
+
+- name: Creating /usr/lib/jvm if not found
+  file:
+    path: /usr/lib/jvm
+    state: directory
+    owner: root
+    mode: 0755
+  when: not usr_lib_jvm_exists.stat.exists
+  tags: java8_SUSE
+
+- name: Check if jdk-8 is already installed in the target location
+  shell: ls -ld /usr/lib/jvm/jdk8* >/dev/null 2>&1
+  failed_when: false
+  register: adoptopenjdk_installed
+  changed_when: false
+  tags:
+    - java8_SUSE
+    - skip_ansible_lint
+
+- name: Install latest openjdk8 release
+  unarchive:
+    src: https://api.adoptopenjdk.net/v3/binary/latest/8/ga/linux/x64/jdk/hotspot/normal/adoptopenjdk?project=jdk
+    dest: /usr/lib/jvm
+    remote_src: yes
+  when: adoptopenjdk_installed.rc != 0
+  tags: java8_SUSE
+
+- name: Get /usr/lib/jvm/jdk8* full path name
+  shell: set -o pipefail | ls -ld /usr/lib/jvm/jdk8* 2>/dev/null | awk '{print $9}'
+  register: adoptopenjdk_dir
+  when: adoptopenjdk_installed.rc != 0
+  changed_when: false
+  tags: java8_SUSE
+
+- name: Chown /usr/lib/jvm/jdk8*
+  file:
+    path: '{{ adoptopenjdk_dir.stdout }}'
+    state: directory
+    owner: root
+    recurse: yes
+  when: adoptopenjdk_installed.rc != 0
+  tags: java8_SUSE
+
+#########
+# expat #
+#########
+- name: Test if expat is installed
+  stat:
+    path: /usr/local/lib/libexpat.so
+  register: expat_installed
+  when:
+    - (ansible_distribution_major_version == "12" and ansible_architecture == "x86_64")
+  tags: expat
+
+- name: Download expat
+  get_url:
+    url: https://github.com/libexpat/libexpat/releases/download/R_2_2_5/expat-2.2.5.tar.bz2
+    dest: /tmp/
+    mode: 0440
+    timeout: 25
+    validate_certs: no
+    checksum: sha256:d9dc32efba7e74f788fcc4f212a43216fc37cf5f23f4c2339664d473353aedf6
+  when:
+    - (ansible_distribution_major_version == "12" and ansible_architecture == "x86_64")
+    - not expat_installed.stat.exists
+  tags: expat
+
+- name: Extract expat
+  unarchive:
+    src: /tmp/expat-2.2.5.tar.bz2
+    dest: /tmp/
+    copy: False
+  when:
+    - (ansible_distribution_major_version == "12" and ansible_architecture == "x86_64")
+    - not expat_installed.stat.exists
+  tags: expat
+
+- name: Running ./configure & make for expat on Linux x86-64
+  shell: cd /tmp/expat-2.2.5 && ./configure && make -j {{ ansible_processor_vcpus }} && sudo make install
+  become: yes
+  when:
+    - (ansible_distribution_major_version == "12" and ansible_architecture == "x86_64")
+    - not expat_installed.stat.exists
+  tags: expat

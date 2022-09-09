@@ -1,0 +1,34 @@
+---
+##########################
+# adoptopenjdk_variables #
+##########################
+
+# Domain for setting hostname
+Domain: adoptopenjdk.net
+
+# Sudoers file
+Sudoers_File: /etc/sudoers
+
+# Jenkins User Variables:
+Jenkins_Username: jenkins
+
+# Superuser Variables:
+Superuser_Account: Enabled
+
+# Nagios Variables:
+Nagios_Plugins: Enabled
+Nagios_Monitoring: Enabled
+Nagios_Master_IP: 78.47.239.96
+
+# Security Variables:
+Security: Enabled
+
+# JCK Variables:
+jckftp_Username: jckftp
+
+# Vendor Variables:
+Vendor_File: Disabled
+Vendor_Playbook: /Vendor_Files/Vendor_Playbook/Vendor.yml
+
+# Default BootJDK installed
+bootjdk: hotspot

@@ -1,0 +1,122 @@
+---
+#############
+# Swap_File #
+#############
+
+# Conditions:
+# Test if there a swapfile already exists: /swapfile (swap_root) or /tmp/swapfile (swap_tmp)
+# Already installed/exists: When swap_root.rc or swap_tmp.rc equals 0
+# Not installed: When swap_root.rc or swap_tmp.rc does NOT equal 0
+# Assume swap path of /swapfile override where applicable
+
+- name: Intialise btrfs variable
+  set_fact:
+    btrfs_fs_found: false
+  tags: swap_file
+
+- name: Check and set fact if / mount point exists and is BTRFS
+  set_fact:
+    btrfs_fs_found: true
+  when: (item.mount == '/') and (item.fstype == 'btrfs')
+  loop: "{{ ansible_facts.mounts }}"
+  tags: swap_file
+
+- name: Check and set fact if / mount point exists and is NOT BTRFS
+  set_fact:
+    btrfs_fs_found: false
+  when: (item.mount == '/') and (item.fstype != 'btrfs')
+  loop: "{{ ansible_facts.mounts }}"
+  tags: swap_file
+
+- name: Print Root FS Type
+  debug:
+    msg: "FS Type = {{ btrfs_fs_found }}"
+  tags: swap_file
+
+- name: Set Swapfile path - /swapfile
+  set_fact:
+    swap_path: /swapfile
+  tags: swap_file
+
+- name: Set Swapfile path - /tmp/swapfile
+  set_fact:
+    swap_path: /tmp/swapfile
+  when:
+    - (ansible_distribution_major_version == "9" and ansible_architecture == "armv7l")
+  tags: swap_file
+
+- name: Check if Swapfile exists
+  stat:
+    path: "{{ swap_path }}"
+  register: swap_exists
+  tags: swap_file
+
+- name: Display swapfile Debug Information
+  debug:
+    msg:
+      - "swap_path: {{ swap_path.stat.exists | default('***Undefined***') }} "
+      - "swap_exists: {{ swap_exists.rc | default('***Undefined***') }} "
+  tags: swap_file
+
+- name: Disable dphys-swapfile where applicable
+  command: "dphys-swapfile uninstall"
+  failed_when: false
+  when:
+    - ansible_architecture == "armv7l"
+  tags: swap_file
+
+- name: Touch Swapfile For BTRFS
+  copy:
+    content: ""
+    dest: "{{ swap_path }}"
+    force: no
+  when:
+    (btrfs_fs_found == True) and not (swap_exists.stat.exists )
+  tags: swap_file
+
+- name: Add Attribute For BTRFS File System
+  command: "chattr +C {{ swap_path }}"
+  when:
+    - (btrfs_fs_found == True) and not (swap_exists.stat.exists)
+  tags: swap_file
+
+- name: Create/Populate swap file - via DD
+  command: "dd if=/dev/zero of=/{{ swap_path }} bs=250M count=8"
+  when:
+    not (swap_exists.stat.exists)
+  tags: swap_file
+
+- name: Set swap file permissions
+  file:
+    path: "{{ swap_path }}"
+    owner: root
+    group: "{{ root_group }}"
+    mode: 0600
+  when:
+    - not (swap_exists.stat.exists)
+  tags: swap_file
+
+- name: Create swap area device
+  command: "mkswap {{ swap_path }}"
+  when:
+    - not (swap_exists.stat.exists)
+  tags: swap_file
+
+- name: Mount swap file
+  command: "swapon {{ swap_path }}"
+  when:
+    - not (swap_exists.stat.exists)
+  tags: swap_file
+
+# 'path' is apparently required, as is 'src' when 'state: present'
+# See: https://docs.ansible.com/ansible/latest/collections/ansible/posix/mount_module.html
+- name: Add swap to fstab
+  mount:
+    path: none
+    src: "{{ swap_path }}"
+    fstype: swap
+    opts: sw
+    state: present
+  when:
+    - not (swap_exists.stat.exists)
+  tags: swap_file
